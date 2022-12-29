@@ -1,0 +1,185 @@
+STDOUT.sync = true # DO NOT REMOVE
+
+ME = 1
+OPP = 0
+NONE = -1
+
+def farthest(tile, width, height)
+    farthest_tile = {
+      x: 0,
+      y: 0
+    }
+    max_distance = 0
+
+    0.upto(height - 1) do |y|
+      0.upto(width - 1) do |x|
+        distance = Math.sqrt((tile[:x] - x)**2 + (tile[:y] - y)**2)
+
+        if distance > max_distance
+          max_distance = distance
+          farthest_tile[:x] = x
+          farthest_tile[:y] = y
+        end
+      end
+    end
+
+    farthest_tile
+end
+
+def nearest_of_owner(tiles, my_tile, width, height, owner)
+  tiles_of_owner = tiles.select { |tile| tile[:scrap_amount] > 0 && tile[:owner] == owner }
+  return nil if tiles_of_owner.empty?
+
+  min_dist = nil
+  result = nil
+
+  tiles_of_owner.each do |tile|
+    dist = (my_tile[:x] - tile[:x]).abs + (my_tile[:y] - tile[:y]).abs
+
+    if min_dist.nil? || dist < min_dist
+      min_dist = dist
+      result = { x: tile[:x], y: tile[:y] }
+    end
+  end
+
+  result
+end
+
+def neighbors(tiles, my_tile)
+  result = []
+  tiles.each do |tile|
+    if tile[:x] == my_tile[:x] && (tile[:y] == my_tile[:y] + 1 || tile[:y] == my_tile[:y] - 1)
+      result << tile
+    elsif tile[:y] == my_tile[:y] && (tile[:x] == my_tile[:x] + 1 || tile[:x] == my_tile[:x] - 1)
+      result << tile
+    end
+  end
+  result
+end
+
+def tile_near_opp(neighbors)
+  neighbors.any? { |neighbor| neighbor[:owner] == OPP }
+end
+
+width, height = gets.split.map { |i| i.to_i }
+role_glob = -1
+# game loop
+loop {
+  role_glob += 1
+  tiles = []
+  my_units = []
+  opp_units = []
+  my_recyclers = []
+  opp_recyclers = []
+  opp_tiles = []
+  my_tiles = []
+  neutral_tiles = []
+
+  my_matter, opp_matter = gets.split.map { |i| i.to_i }
+  height.times { |y|
+    width.times { |x|
+     # owner: 1 = me, 0 = foe, -1 = neutral
+     scrap_amount, owner, units, recycler, can_build, can_spawn, in_range_of_recycler = gets.split.map { |i| i.to_i }
+
+     tile = {
+       scrap_amount: scrap_amount,
+       owner: owner,
+       units: units,
+       recycler: recycler==1,
+       can_build: can_build==1,
+       can_spawn: can_spawn==1,
+       in_range_of_recycler: in_range_of_recycler==1,
+       x: x,
+       y: y
+     }
+
+     tiles.append(tile)
+
+     if tile[:owner] == ME
+         my_tiles.append(tile)
+         if tile[:units] > 0
+             my_units.append(tile)
+         elsif tile[:recycler]
+             my_recyclers.append(tile)
+         end
+     elsif tile[:owner] == OPP
+         opp_tiles.append(tile)
+         if tile[:units] < 0
+             opp_units.append(tile)
+         elsif tile[:recycler]
+             opp_recyclers.append(tile)
+         end
+     else
+         neutral_tiles.append(tile)
+     end
+    }
+  }
+
+  actions = []
+  role= -1
+  my_tiles.each { |tile|
+  spawned, built = true, true
+  units = tile[:units] > 0
+  neighbors = neighbors(tiles, tile)
+  tile_near_opp = tile_near_opp(neighbors)
+  role += 1
+  x = tile[:x]
+  y = tile[:y]
+  if tile[:can_spawn] && ((!units && role % 9 == 4) || (tile_near_opp && role % 9 != 8 && role_glob % 2 == 1))
+    if my_matter / 10 > 0
+      amount = 1
+    else
+      amount = 0
+    end
+    if amount > 0
+      actions<<"SPAWN #{amount} #{tile[:x]} #{tile[:y]}"
+      my_matter -= 10
+    else
+      spawned = nil
+    end
+  else
+    spawned = nil
+  end
+  if tile[:can_build] && my_matter / 10 > 0
+    should_build = tile_near_opp && !spawned && role % 9 == 8
+    if should_build
+      actions<<"BUILD #{tile[:x]} #{tile[:y]}"
+    else
+      built = nil
+    end
+  else
+    built = nil
+  end
+  if units && !built && !spawned
+    amount = 0
+    if !tile_near_opp
+      amount = tile[:units] / 3
+      target = nearest_of_owner(tiles, tile, width, height, NONE)
+      if target && amount > 0
+        actions<<"MOVE #{amount} #{tile[:x]} #{tile[:y]} #{target[:x]} #{target[:y]}"
+      end
+      amount = tile[:units] % 3
+      opp_empty = opp_tiles.select { |opp| opp[:units] == 0 }
+      target = nearest_of_owner(tiles, tile, width, height, OPP)
+      if target && amount > 0
+        actions<<"MOVE #{amount} #{tile[:x]} #{tile[:y]} #{target[:x]} #{target[:y]}"
+      end
+    else
+      amount = tile[:units]
+      targets = opp_units.select { |opp| opp in neighbors }
+      count = targets.count
+      opp_role = -1
+      while amount > 0 && targets.any?
+        opp_role += 1
+        target = targets[opp_role % count]
+        if target
+          actions<<"MOVE #{1} #{tile[:x]} #{tile[:y]} #{target[:x]} #{target[:y]}"
+        end
+        amount -= 1
+      end
+    end
+  end
+  }
+  # To debug: STDERR.puts "Debug messages..."
+  actions.size > 0 ? (puts actions*";") : "WAIT"
+}
